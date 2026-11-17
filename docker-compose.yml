@@ -1,0 +1,86 @@
+name: data-analyse-agent
+
+services:
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-data_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-data_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - appnet
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - appnet
+
+  backend:
+    build:
+      context: ./backend
+      target: development
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-data_agent}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-data_agent}
+      REDIS_URL: redis://redis:6379/0
+      HOST_DATA_DIR: ${HOST_DATA_DIR:-}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+      - ./document:/document:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - appnet
+
+  sandbox:
+    profiles: ["sandbox"]
+    build:
+      context: ./sandbox
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    image: data-agent-sandbox:latest
+
+volumes:
+  pgdata:
+    name: data-analyse-agent_pgdata
+  redisdata:
+    name: data-analyse-agent_redisdata
+
+networks:
+  appnet:
+    name: data-analyse-agent_appnet
+    driver: bridge

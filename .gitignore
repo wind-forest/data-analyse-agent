@@ -1,0 +1,94 @@
+# ============================================================
+# 密钥与本地配置（务必不要提交，防止密钥泄露）
+# ============================================================
+.env
+.env.*
+!.env.example
+*.local
+*.secret
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+.secrets/
+credentials.json
+service-account*.json
+
+# ============================================================
+# Python
+# ============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Spark / 建模运行时产物
+spark-warehouse/
+metastore_db/
+derby.log
+*.joblib
+*.pkl
+*.h5
+
+# ============================================================
+# 前端
+# ============================================================
+node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+frontend/playwright/.cache/
+.vite/
+*.tsbuildinfo
+coverage/
+
+# ============================================================
+# 运行时数据（上传文件、会话工作目录、产物）
+# ============================================================
+data/
+!data/.gitkeep
+
+# 开发文档与演示数据（仅保留在本地，不随仓库发布）
+document/
+
+# ============================================================
+# 日志、截图与临时文件
+# ============================================================
+*.log
+logs/
+tmp/
+temp/
+.screenshots/
+*.tmp
+*.bak
+*.swp
+*~
+
+# ============================================================
+# 操作系统与编辑器
+# ============================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+.trae/
+*.iml

@@ -1,0 +1,142 @@
+name: data-analyse-agent-prod
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-data_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-data_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+    networks:
+      - appnet
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512m
+    networks:
+      - appnet
+
+  backend:
+    build:
+      context: ./backend
+      target: production
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    image: data-analyse-agent-backend:prod
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-data_agent}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-data_agent}
+      REDIS_URL: redis://redis:6379/0
+      DATA_DIR: /data
+      HOST_DATA_DIR: ${HOST_DATA_DIR:?HOST_DATA_DIR must be a host absolute path}
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-data-agent-sandbox:latest}
+    volumes:
+      - ./data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      # Docker Desktop 的 socket 为 root:root 660；Linux 通常为 root:docker
+      - "0"
+      - "${DOCKER_GID:-999}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    stop_grace_period: 60s
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 4g
+    networks:
+      - appnet
+
+  frontend:
+    build:
+      context: ./frontend
+      target: runtime
+    image: data-analyse-agent-frontend:prod
+    restart: unless-stopped
+    environment:
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-2048}
+    ports:
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_HTTP_PORT:-18080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+    networks:
+      - appnet
+
+  sandbox:
+    profiles: ["sandbox"]
+    build:
+      context: ./sandbox
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    image: ${SANDBOX_IMAGE:-data-agent-sandbox:latest}
+
+volumes:
+  pgdata:
+    name: data-analyse-agent-prod_pgdata
+  redisdata:
+    name: data-analyse-agent-prod_redisdata
+
+networks:
+  appnet:
+    name: data-analyse-agent-prod_appnet
+    driver: bridge

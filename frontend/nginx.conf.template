@@ -1,0 +1,71 @@
+log_format main_no_query '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" '
+                          '$status $body_bytes_sent "$http_referer" "$http_user_agent"';
+
+server {
+    listen 80;
+    server_name _;
+    server_tokens off;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    access_log /var/log/nginx/access.log main_no_query;
+
+    client_max_body_size ${MAX_UPLOAD_SIZE_MB}m;
+    client_body_timeout 600s;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # SSE：关闭缓冲与压缩，保持长连接，并让后端心跳立即到达浏览器
+    location ~ ^/api/sessions/[^/]+/stream$ {
+        proxy_pass http://backend:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_set_header Accept-Encoding "";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        gzip off;
+        add_header X-Accel-Buffering no always;
+    }
+
+    location /api/ {
+        proxy_pass http://backend:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        # 大文件直接流式转发给后端，避免 Nginx 先写满临时磁盘
+        proxy_request_buffering off;
+        proxy_read_timeout 900s;
+        proxy_send_timeout 900s;
+    }
+
+    location /assets/ {
+        try_files $uri =404;
+        expires 1y;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location = /index.html {
+        expires -1;
+    }
+}

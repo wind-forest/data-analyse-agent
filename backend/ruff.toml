@@ -1,0 +1,5 @@
+target-version = "py311"
+
+# Windows 挂载目录中的文件在容器内会被识别为可执行，统一忽略该环境差异
+[lint]
+ignore = ["EXE002"]
